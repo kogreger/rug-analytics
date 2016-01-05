@@ -1,4 +1,5 @@
 library(dplyr)
+library(httr)
 library(jsonlite)
 library(XML)
 source("APIkey.R")
@@ -14,44 +15,46 @@ colnames(links) <- c("url")
 
 # extract respective group names
 links %<>% 
-    filter(grepl("http://www.meetup.com/", 
+    filter(grepl("http://www\\.meetup\\.com/", 
                  url)) %>% 
-    mutate(groupName = sub("^http://www.meetup.com/([a-zA-Z0-9-]+?)(/.*|)$", 
-                           "\\1", 
-                           url))
+    mutate(groupName = sub("http://www\\.meetup\\.com(/[a-z]{2}/|/)([a-zA-Z0-9-]+?)(/.*|)$", 
+                           "\\2", 
+                           url, 
+                           perl = TRUE))
 
-# fetch data from meetup.com via REST API
-data <- list()
-i <- 1
+# fetch data from meetup.com via REST API and build user group data frame
+userGroups <- data.frame(id = integer(), 
+                         name = character(), 
+                         created = integer(), 
+                         city = character(), 
+                         country = character(), 
+                         lat = numeric(), 
+                         lon = numeric(), 
+                         members = integer(), 
+                         stringsAsFactors = FALSE)
 for(groupName in links$groupName) {
     APIcall = paste0("https://api.meetup.com/", 
                      groupName, 
                      "?&sign=true&photo-host=public&key=", 
                      APIkey)
-    json <- fromJSON(APIcall, flatten = TRUE)
-    data[[i]] <- c(id = json$id, 
-                   name = json$name, 
-                   created = json$created, 
-                   city = json$city, 
-                   country = json$country, 
-                   lat = json$lat, 
-                   lon = json$lon, 
-                   members = json$members)
-    i <- i + 1
+    json <- list()
+    try({    # to account for dead links
+        json <- fromJSON(APIcall)
+        json <- json %>% 
+            as.data.frame %>% 
+            select(id, 
+                   name, 
+                   created, 
+                   city, 
+                   country, 
+                   lat, 
+                   lon, 
+                   members) %>% 
+            head(1)    # only one instance per group out of df'ed JSON list
+        userGroups <- rbind(userGroups, json)
+        })
 }
 
-# build user group data frame
-userGroups <- data %>% 
-    unlist() %>% 
-    matrix(nrow = nrow(links), 
-           byrow = TRUE) %>% 
-    as.data.frame(stringsAsFactors = FALSE)
-colnames(userGroups) <- c("id", 
-                          "name", 
-                          "created", 
-                          "city", 
-                          "country", 
-                          "lat", 
-                          "lon", 
-                          "members")
+# output result
+plot(userGroups$members)
 userGroups
